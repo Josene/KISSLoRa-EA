@@ -71,8 +71,6 @@
 #define APPS_STATE          2
 
 //TheThingsNetwork anonymous config
-static const char *appeui = "70B3D57EF000363A";
-static const char *appkey = "5D69117C4F5BCC162F0D283016E4EA2A";
 static const char *devAddr = "26011F0F";
 static const char *nwkSKey = "ADAFF80790E39125AD12F170768A6A97";
 static const char *appSKey = "B98AEF49D4D819536FDD511544FCC49B";
@@ -278,12 +276,12 @@ int main(void)
   
   //if no network is joined, join network
   if (!joined_network) {
-    //ttn.getAppEui(appeui, sizeof(appeui));
-    if (strcmp(appeui, "0000000000000000") == 0) {
-      ttn.join(appeui, appkey);
-      //ttn.personalize(devAddr, nwkSKey, appSKey);
+    char appEui[17];
+    ttn.getAppEui(appEui, sizeof(appEui));
+    if (strcmp(appEui, "0000000000000000") == 0) {
+      ttn.personalize(devAddr, nwkSKey, appSKey);
     } else {
-      ttn.join(appeui, appkey);
+      ttn.join();
     }
     joined_network = 1;
   }
