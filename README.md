@@ -37,6 +37,7 @@ void loop()
   Serial.println(data[0]);
   Serial.print("PM2.5: ");
   Serial.println(data[1]);
+  delay(2000);
 }
 ```
 JosenePM.getData(boolean debug) reads the data from the device, and stores it in an array with a length of two unsigned, sixteen bit integers. The first element in the array is the PM10 value, the second element in the array is the PM2.5 value.
