@@ -28,6 +28,7 @@
 #include <avr/interrupt.h>
 #include <avr/power.h>
 #include <avr/sleep.h>
+#include <avr/pgmspace.h>
 #include <util/delay.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -41,6 +42,7 @@
 #include "SoftPWM.h"
 #include "KISSLoRa_sleep.h"
 #include "KISSLoRa_io.h"
+#include "IntemoPM.h"
 
 //Define both serial interfaces for easier use
 #define loraSerial			Serial1
@@ -69,6 +71,8 @@
 #define APPS_STATE          2
 
 //TheThingsNetwork anonymous config
+static const char *appeui = "70B3D57EF000363A";
+static const char *appkey = "5D69117C4F5BCC162F0D283016E4EA2A";
 static const char *devAddr = "26011F0F";
 static const char *nwkSKey = "ADAFF80790E39125AD12F170768A6A97";
 static const char *appSKey = "B98AEF49D4D819536FDD511544FCC49B";
@@ -107,9 +111,24 @@ bool connectivity_check;
 uint8_t app, prev_app;
 unsigned long prev_message_at_millis = 0;
 
+JosenePM JosenePM;
+
+const uint8_t pm10clrs[5][4] PROGMEM =
+{
+  {0,0,0,255},
+  {16,0,255,0},
+  {48,255,255,0},
+  {128,255,0,0},
+  {176,255,0,255}
+};
+
 int main(void)
 {
 	init();						//Init Arduino
+
+  //JosenePM = new JosenePM();
+
+  JosenePM.begin(0x4E, 1);
 
   KISSLoRa_sleep_init();
   
@@ -247,17 +266,24 @@ int main(void)
         usbserial.end();
       current_state = APPS_STATE;
     }
+    if (serialDataIn.startsWith("geteui"))
+    {
+      for (int i = 0; i < 17; i++)
+      {
+        usbserial.write(hwEui_char_array[i]);
+      }
+    }
   }//end commissioning mode
 
   
   //if no network is joined, join network
   if (!joined_network) {
-    char appEui[17];
-    ttn.getAppEui(appEui, sizeof(appEui));
-    if (strcmp(appEui, "0000000000000000") == 0) {
-      ttn.personalize(devAddr, nwkSKey, appSKey);
+    //ttn.getAppEui(appeui, sizeof(appeui));
+    if (strcmp(appeui, "0000000000000000") == 0) {
+      ttn.join(appeui, appkey);
+      //ttn.personalize(devAddr, nwkSKey, appSKey);
     } else {
-      ttn.join();
+      ttn.join(appeui, appkey);
     }
     joined_network = 1;
   }
@@ -265,7 +291,15 @@ int main(void)
   //Start LoRa communication
 	usbserial.println(F("-- Status"));
 	ttn.showStatus();			//Show RN2483 information via serial
- 
+
+  JosenePM.powerOn();
+
+  usbserial.write("geteui:");
+  for (int i = 0; i < 16; i++)
+  {
+    usbserial.write(hwEui_char_array[i]);
+  }
+  
 	while (1)
 	{
     //if no USB cable is connected, stop usbserial
@@ -273,6 +307,17 @@ int main(void)
     {
       if(usbserial)
         usbserial.end();
+    }
+    serialDataIn = "";
+    while (usbserial.available() > 0)
+    {
+      char c = usbserial.read();
+      serialDataIn += c;
+    }
+    if (serialDataIn.startsWith("geteui"))
+    {
+      usbserial.write("geteui:");
+      for (int i = 0; i < 16; i++) { usbserial.write(hwEui_char_array[i]); }
     }
     
     //determine app selected with rotary switch
@@ -406,7 +451,8 @@ int main(void)
         break;//app 3
       case 4://app 4: accelerometer -> RGB: >  RED = x > 2g, GREEN = y > 2g, BLUE = z > 2g
         {
-          uint8_t R, G, B;
+          //Has been commented to free EEPROM space.
+          /*uint8_t R, G, B;
           //read acc sensor
           get_acc_values(&acc_values);
           //determine outputs
@@ -424,7 +470,7 @@ int main(void)
             B = 0;
           //write outputs
           set_rgb_led(R,G,B);
-          delay(100);
+          delay(100);*/
         }
         break;//app 4
       case 5://app 5: accelerometer dice
@@ -506,75 +552,36 @@ int main(void)
           }
         }
         break;//app 5
-      case 6://app 6: RGB fade
+      case 6://app 6: Read and show the PM values.
         {
-          uint16_t R, G, B;
-          uint8_t FADESPEED = 5;
-          //if we just got to this app, turn LED's off and start fading to blue
-          if(app != prev_app)
+          uint16_t *pm = JosenePM.getData(false);
+          usbserial.print("\nJosene PM values---\nPM10: ");
+          usbserial.println(pm[0]);
+          usbserial.print("PM2.5: ");
+          usbserial.println(pm[1]);
+          uint8_t i;
+          uint8_t r, g, b;
+          for (i = 4; i > 0; i--)
           {
-            set_rgb_led(0, 0, 0);
-            for (B = 0; B < 256; B++) { 
-              set_rgb_led(R, G, B);
-              delay(FADESPEED);
-              if(get_rotary_value() != 6)
-                break;
+            if (pm[0] >= pgm_read_byte_near(&(pm10clrs[i][0])))
+            {
+              r = pgm_read_byte_near(&(pm10clrs[i][1]));
+              g = pgm_read_byte_near(&(pm10clrs[i][2]));
+              b = pgm_read_byte_near(&(pm10clrs[i][3]));
+              usbserial.println(i);
+              usbserial.println(r);
+              usbserial.println(g);
+              usbserial.println(b);
+              break;
             }
-            B = 255;
-          }  
-          // fade from blue to violet
-          for (R = 1; R < 256; R++) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
           }
-          R = 255; 
-          // fade from violet to red
-          for (B = 255; B > 0; B--) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
-          } 
-          B = 0;
-          // fade from red to yellow
-          for (G = 1; G < 256; G++) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
-          } 
-          G = 255;
-          // fade from yellow to green
-          for (R = 255; R > 1; R--) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
-          } 
-          R = 1;
-          // fade from green to teal
-          for (B = 0; B < 256; B++) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
-          } 
-          B = 255;
-          // fade from teal to blue
-          for (G = 255; G > 1; G--) { 
-            set_rgb_led(R, G, B);
-            delay(FADESPEED);
-            if(get_rotary_value() != 6)
-              break;
-          }
-          G = 1;
-        } 
+          set_rgb_led(r,g,b);
+          delay(1250);
+        }
         break;  //app 6
-      case 7://app 7: Light sensor -> RGB (White) LED
+      case 7://app 7: Light sensor -> RGB (White) LED -- commented to make flash space.
         {
-          int16_t intensity;
+          /*int16_t intensity;
           //get light sensor value
           lux = get_lux_value();
           //determine intensity
@@ -583,13 +590,13 @@ int main(void)
             intensity = 1;
           //set output
           set_rgb_led(intensity,intensity,intensity);
-          delay(10);
+          delay(10);*/
         }
         break;//app 7
-      case 8://app 8: temperature sensor -> RGB (cold = blue, normal is green, hot is red)
+      case 8://app 8: temperature sensor -> RGB (cold = blue, normal is green, hot is red) -- commented to make flash space.
         {
           //read humidity sensor (otherwise temperature sensor doesn't work)
-          /*uint16_t rh_code = */get_si7021_value(SI7021_HUMIDITY);
+          /*get_si7021_value(SI7021_HUMIDITY);
           //read temperature sensor
           uint16_t temp_code = get_si7021_value(SI7021_PREV_TEMPERATURE);
           //calculate temperature
@@ -602,12 +609,12 @@ int main(void)
             set_rgb_led(0, 255, 0);
           else 
             set_rgb_led(255, 0, 0);
-          delay(500);
+          delay(500);*/
         }
         break;//app 8
-      case 9://app 9: Humidity sensor -> blink blue LED (higher humidity is faster blinking)
+      case 9://app 9: Humidity sensor -> blink blue LED (higher humidity is faster blinking) -- commented to make flash space (rschalks)
         {
-          //read humidity sensor
+          /*//read humidity sensor
           uint16_t rh_code = get_si7021_value(SI7021_HUMIDITY);
           //uint16_t temp_code = get_si7021_value(SI7021_PREV_TEMPERATURE);
 
@@ -622,7 +629,7 @@ int main(void)
           set_rgb_led(0, 0, 255);
           delay(2000-delaytime);
           set_rgb_led(0, 0, 0);
-          delay(2000-delaytime);
+          delay(2000-delaytime);*/
         }
         break;//app 9
       default:
@@ -644,31 +651,43 @@ int main(void)
 	return 0;
 }
 
+void float2bytes(float val,byte* bytes_array){
+  // Create union of shared memory space
+  union {
+    float float_variable;
+    byte temp_array[4];
+  } u;
+  // Overite bytes of union with float variable
+  u.float_variable = val;
+  // Assign bytes to input array
+  memcpy(bytes_array, u.temp_array, 4);
+}
+
 //! \brief read sensors and send lora message
 static void read_sensors_send_lora(void)
 {
   //Collect all sensor data state and control i/o
-  usbserial.println(F("-- Collecting sensordata"));
+  usbserial.println("-- Collecting sensordata");
   uint16_t rh_code = get_si7021_value(SI7021_HUMIDITY);
   if (rh_code == 100) rh_code = 0;        //Check for error
   humidity = (125.0*rh_code/65536)-6;       //Convert raw data to readable value
-  usbserial.print(F("-- Humidity value converted from I2C value: "));
+  usbserial.print("-- Humidity value converted from I2C value: ");
   usbserial.println(humidity);
   
   uint16_t temp_code = get_si7021_value(SI7021_PREV_TEMPERATURE);
   if (temp_code == 100) temp_code = 0;      //Check for error
   temperature = (175.25*temp_code/65536)-46.85; //Convert raw data to readable value
-  usbserial.print(F("-- Temperature value converted from I2C value: "));
+  usbserial.print("-- Temperature value converted from I2C value: ");
   usbserial.println(temperature);
   
   lux = get_lux_value();
-  usbserial.print(F("-- Lux value converted from analog: "));
+  usbserial.print("-- Lux value converted from analog: ");
   usbserial.println(lux);
   
   get_acc_values(&acc_values);
   
   ttn.getHardwareEui(hwEui_char_array, 17);                                    //read HWEUI from module
-  usbserial.print(F("-- hwEui read from module: "));
+  usbserial.print("-- hwEui read from module: ");
   usbserial.println(hwEui_char_array);
   hwEui_16_bits = ascii_hex_to_nibble(hwEui_char_array[12]);
   hwEui_16_bits |= ascii_hex_to_nibble(hwEui_char_array[13]) << 4;
@@ -677,37 +696,78 @@ static void read_sensors_send_lora(void)
 
   //Decode and send data state (only if there is a LoRa network available)
   set_lora_led(true);
-  LoraMessage message;
-  
+  //LoraMessage message;
+
+  uint8_t dataArray[12];
+  //uint8_t dataArray[14];
   //Add all data to the message class which decodes it
-  usbserial.println(F("-- Decoding following data: "));
-  usbserial.print(F("-- Humidity: "));
+  usbserial.println("-- Decoding following data: ");
+  usbserial.print("-- Humidity: ");
   usbserial.println(humidity);
-  message.addUint8(humidity);
-  
-  usbserial.print(F("-- Temperature: "));
+  dataArray[0] = humidity;
+  //message.addUint8(humidity);
+
+  //byte temp[4];
+  //float2bytes(temperature, &temp[0]);
+  usbserial.print("-- Temperature: ");
   usbserial.println(temperature);
-  message.addTemperature(temperature);
+  int8_t templeft = (int8_t)temperature;
+  uint8_t tempright = (uint8_t)((templeft > 0 ? temperature - templeft : templeft - temperature) * 100);
+  dataArray[1] = templeft;
+  dataArray[2] = tempright;
+  /*dataArray[1] = temp[0];
+  dataArray[2] = temp[1];
+  dataArray[3] = temp[2];
+  dataArray[4] = temp[3];*/
+  //message.addTemperature(temperature);
   
   usbserial.print(F("-- Lux: "));
   usbserial.println(lux);
-  message.addUint16(lux);
+  dataArray[3] = (byte)lux;
+  dataArray[4] = (byte)(lux >> 8);
+  /*dataArray[5] = (byte)lux;
+  dataArray[6] = (byte)(lux >> 8);*/
+  //message.addUint16(lux);
   
   usbserial.print(F("-- Accelerometer x position: "));
   usbserial.println(acc_values.acc_x);
-  message.addUint8(acc_values.acc_x);
+  //dataArray[7] = (uint8_t)acc_values.acc_x;
+  //message.addUint8(acc_values.acc_x);
   
   usbserial.print(F("-- Accelerometer y position: "));
   usbserial.println(acc_values.acc_y);
-  message.addUint8(acc_values.acc_y);
+  //dataArray[8] = (uint8_t)acc_values.acc_y;
+  //message.addUint8(acc_values.acc_y);
   
   usbserial.print(F("-- Accelerometer z position: "));
-  usbserial.println(acc_values.acc_z);
-  message.addUint8(acc_values.acc_z);
+  usbserial.println(acc_values.acc_z - 63);
+  //dataArray[9] = (uint8_t)acc_values.acc_z;
+  //message.addUint8(acc_values.acc_z);
+  dataArray[5] = (uint8_t)acc_values.acc_x;
+  dataArray[6] = (uint8_t)acc_values.acc_y;
+  dataArray[7] = (uint8_t)(acc_values.acc_z - 63);
+
+  uint16_t *pm;
+  pm = JosenePM.getData(false);
+  
+  usbserial.print(F("-- PM10 Value: "));
+  usbserial.println(pm[0]);
+  //message.addUint16(pm[0]);
+  /*dataArray[10] = (byte)pm[0];
+  dataArray[11] = (byte)(pm[0] >> 8);*/
+  usbserial.print(F("-- PM2.5 value: "));
+  usbserial.println(pm[1]);
+  /*dataArray[12] = (byte)pm[1];
+  dataArray[13] = (byte)(pm[1] >> 8);*/
+  //message.addUint16(pm[1]);
+  dataArray[8] = (uint8_t)pm[0];
+  dataArray[9] = (uint8_t)(pm[0] >> 8);
+  dataArray[10] = (uint8_t)(pm[1]);
+  dataArray[11] = (uint8_t)(pm[1] >> 8);
   
   usbserial.print(F("-- hwEui: "));
   usbserial.println(hwEui_16_bits, HEX);
-  message.addUint16(hwEui_16_bits);
+  //message.addUint16(hwEui_16_bits);
   
   //Send the decoded data
   
@@ -738,7 +798,8 @@ static void read_sensors_send_lora(void)
   usbserial.println(txsf);
     
   usbserial.println(F("-- Sending data"));
-  joined_network = ttn.sendBytes(message.getBytes(), message.getLength(), 1, connectivity_check, txsf); 
+  joined_network = ttn.sendBytes(dataArray, sizeof(dataArray), 1, connectivity_check, txsf);
+  //joined_network = ttn.sendBytes(message.getBytes(), message.getLength(), 1, connectivity_check, txsf); 
   connectivity_check = false;
   if(connectivity_check == true)
   {
@@ -751,7 +812,7 @@ static void read_sensors_send_lora(void)
         _delay_ms(250);
         set_rgb_led(0,0,0);
         _delay_ms(250);
-      }  
+      }
     }
     else
     {
