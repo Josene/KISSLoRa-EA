@@ -1,8 +1,8 @@
-##Introduction
+## Introduction
 This repository has been made to make the code for the Josuino/KISS LoRa publically available.
 The code within contains two folders; the libraries used, and an example file. 
 
-##Library usage
+## Library usage
 Copy both folders in /Libraries to (USER FOLDER)\Arduino\Libraries.
 First, we need to enable the PM sensor class, then enable the physical PM sensor.
 ```
