@@ -42,4 +42,4 @@ void loop()
 ```
 JosenePM.getData(boolean debug) reads the data from the device, and stores it in an array with a length of two unsigned, sixteen bit integers. The first element in the array is the PM10 value, the second element in the array is the PM2.5 value.
 
-#It is important to make sure a delay exists after reading, with at least 1.8 seconds. Otherwise, you will receive random values.
+**It is important to make sure a delay exists after reading, with at least 1.8 seconds. Otherwise, you will receive random values.**
