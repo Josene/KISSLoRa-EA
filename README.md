@@ -19,15 +19,15 @@ void setup()
   JosenePM.begin(joseneAddress, 1);
 }
 ```
-JosenePM.begin(uint8_t address, uint8_t channel) sends a 'initialization' command to the sensor, setting it up to allow reading data.
-Then, we neet to turn on the PM sensor.
+JosenePM.begin(uint8_t address, uint8_t channel) sends an initialization command to the sensor, setting it up to allow data transferring.
+Then, we need to turn on the PM sensor.
 ```
 ...
   JosenePM.begin(joseneAddress, 1);
   JosenePM.powerOn();
 }
 ```
-JosenePM.powerOn() turns on the sensor, allowing it to physically read the incoming particles. To retrieve the data, we use the following method:
+JosenePM.powerOn() turns on the sensor, allowing the device to register the amount of particles in its chamber, which is stored in an internal buffer. To retrieve the data, we use the following method:
 ```
 ...
 void loop()
